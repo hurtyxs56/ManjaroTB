@@ -13,7 +13,7 @@ if ! command -v protontricks-launch >/dev/null; then
 fi
 command -v protontricks-launch >/dev/null || fail "Brak protontricks-launch."
 PREFIX=""
-for root in "$HOME/.local/share/Steam" "$HOME/.steam/steam"; do
+for root in "$HOME/.local/share/Steam" "$HOME/.steam/steam" /run/media/"$USER"/*/SteamLibrary /mnt/*/SteamLibrary; do
   if [[ -d "$root/steamapps/compatdata/$APPID/pfx" ]]; then PREFIX="$root/steamapps/compatdata/$APPID"; break; fi
 done
 if [[ -z "$PREFIX" ]]; then
