@@ -1,66 +1,66 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-APPID=227300
-DIR="$HOME/.local/share/manjarotb"
-mkdir -p "$DIR"
-log(){ printf '\n[ManjaroTB] %s\n' "$*"; }
-fail(){ echo "BLAD: $*" >&2; exit 1; }
-command -v pacman >/dev/null || fail "Wymagany Manjaro/Arch."
-command -v steam >/dev/null || log "Steam nie jest w PATH (Flatpak nie jest obslugiwany)."
-if ! command -v protontricks-launch >/dev/null; then
-  log "Proba instalacji protontricks z oficjalnego repozytorium..."
-  sudo pacman -S --needed protontricks || fail "Brak protontricks w repozytorium. Zainstaluj go z zaufanego zrodla i ponow."
-fi
-command -v protontricks-launch >/dev/null || fail "Brak protontricks-launch."
-PREFIX=""
-for root in "$HOME/.local/share/Steam" "$HOME/.steam/steam" /run/media/"$USER"/*/SteamLibrary /mnt/*/SteamLibrary; do
-  if [[ -d "$root/steamapps/compatdata/$APPID/pfx" ]]; then PREFIX="$root/steamapps/compatdata/$APPID"; break; fi
+APP=227300
+STATE="$HOME/.local/share/manjarotb"
+mkdir -p "$STATE"
+LOG="$STATE/install.log"
+exec > >(tee -a "$LOG") 2>&1
+trap 'echo "[BLAD] Linia $LINENO. Log: $LOG"' ERR
+say(){ printf '\n[ManjaroTB] %s\n' "$*"; }
+die(){ say "BLAD: $*"; exit 1; }
+command -v pacman >/dev/null || die "Wymagany Manjaro/Arch."
+command -v protontricks-launch >/dev/null || { say "Instalacja Protontricks..."; sudo pacman -S --needed protontricks || die "Brak pakietu protontricks w repozytorium."; }
+command -v curl >/dev/null || sudo pacman -S --needed curl
+say "Wyszukiwanie ETS2 na wszystkich typowych dyskach..."
+PFX=""
+for base in "$HOME/.local/share/Steam" "$HOME/.steam/steam" /run/media/"$USER" /mnt; do
+  [[ -d "$base" ]] || continue
+  while IFS= read -r -d '' found; do PFX="$found"; break; done < <(find "$base" -maxdepth 9 -type d -path "*/steamapps/compatdata/$APP/pfx" -print0 2>/dev/null)
+  [[ -n "$PFX" ]] && break
 done
-if [[ -z "$PREFIX" ]]; then
-  for base in /run/media/"$USER" /mnt "$HOME/.local/share/Steam" "$HOME/.steam"; do
+[[ -n "$PFX" ]] || die "Brak prefixu ETS2. W Steam wymus Proton, uruchom gre raz, zamknij."
+COMPAT="${PFX%/pfx}"
+LIB="${COMPAT%/steamapps/compatdata/$APP}"
+say "Znaleziono ETS2: $COMPAT"
+# Steam client library metadata is still required by protontricks; keep its default discovery.
+if pgrep -afi 'eurotrucks2.exe|eurotrucks2' >/dev/null; then die "Zamknij ETS2 przed instalacja."; fi
+TB=""
+while IFS= read -r -d '' f; do TB="$f"; break; done < <(find "$PFX/drive_c" -type f -iname 'TB Client.exe' -print0 2>/dev/null)
+if [[ -z "$TB" ]]; then
+  say "Szukam pobranego oryginalnego instalatora TrucksBook..."
+  SETUP=""
+  for base in "$HOME/Downloads" "$HOME/Pobrane" "$HOME/Desktop" "$HOME/Pulpit"; do
     [[ -d "$base" ]] || continue
-    while IFS= read -r -d '' found; do
-      PREFIX="${found%/pfx}"
-      break
-    done < <(find "$base" -maxdepth 8 -type d -path "*/steamapps/compatdata/$APPID/pfx" -print0 2>/dev/null)
-    [[ -n "$PREFIX" ]] && break
+    while IFS= read -r -d '' f; do SETUP="$f"; break; done < <(find "$base" -maxdepth 5 -type f \( -iname 'setup*.exe' -o -iname '*trucksbook*.exe' \) -print0 2>/dev/null)
+    [[ -n "$SETUP" ]] && break
   done
+  if [[ -z "$SETUP" ]]; then
+    say "Pobierz oryginalny instalator z https://trucksbook.eu/ po zalogowaniu, rozpakuj ZIP."
+    if command -v zenity >/dev/null; then SETUP="$(zenity --file-selection --title='Wybierz setup.exe TrucksBook' || true)"; else read -r -p "Pelna sciezka do setup.exe: " SETUP; fi
+  fi
+  [[ -f "$SETUP" ]] || die "Nie wybrano prawidlowego setup.exe. Nic nie usunieto."
+  say "Uruchamiam instalator TrucksBook w prefixie ETS2..."
+  STEAM_COMPAT_DATA_PATH="$COMPAT" protontricks-launch --appid "$APP" "$SETUP" || die "Instalator zakonczyl sie bledem. Sprawdz $LOG"
+  while IFS= read -r -d '' f; do TB="$f"; break; done < <(find "$PFX/drive_c" -type f -iname 'TB Client.exe' -print0 2>/dev/null)
 fi
-if [[ -z "$PREFIX" ]]; then
-  echo "Nie znaleziono prefixu automatycznie."
-  read -r -p "Podaj pelna sciezke do katalogu pfx ETS2 (lub Enter, aby przerwac): " CUSTOM_PFX
-  [[ -n "$CUSTOM_PFX" && -d "$CUSTOM_PFX/drive_c" ]] || fail "Nie znaleziono prawidlowego katalogu pfx."
-  PREFIX="${CUSTOM_PFX%/pfx}"
-fi
-log "Prefix ETS2: $PREFIX"
-if [[ -z "${TB_SETUP:-}" ]]; then
-  echo "Pobierz klienta z https://trucksbook.eu/ po zalogowaniu i rozpakuj archiwum."
-  read -r -p "Podaj pelna sciezke do setup.exe TrucksBook (Enter, jesli juz zainstalowany): " TB_SETUP
-fi
-if [[ -n "$TB_SETUP" ]]; then
-  [[ -f "$TB_SETUP" ]] || fail "Brak instalatora: $TB_SETUP"
-  log "Uruchamiam instalator w prefixie ETS2. Wybierz poprawny plik eurotrucks2.exe."
-  protontricks-launch --appid "$APPID" "$TB_SETUP"
-fi
-TB_EXE=""
-while IFS= read -r -d '' file; do TB_EXE="$file"; break; done < <(find "$PREFIX/pfx/drive_c" -type f -iname 'TB Client.exe' -print0 2>/dev/null)
-[[ -n "$TB_EXE" ]] || fail "Nie znaleziono TB Client.exe w prefixie ETS2. Zainstaluj klienta w tym prefixie."
-printf '%s\n' "$TB_EXE" > "$DIR/client-path"
-cat > "$DIR/launch.sh" <<'EOF'
+[[ -f "$TB" ]] || die "Nie znaleziono TB Client.exe po instalacji. Sprawdz, czy instalator zakonczyl sie poprawnie."
+printf '%s\n' "$TB" > "$STATE/client-path"
+printf '%s\n' "$COMPAT" > "$STATE/compat-path"
+cat > "$STATE/launch.sh" <<'LAUNCH'
 #!/usr/bin/env bash
-set -u
-CLIENT="$(cat "$HOME/.local/share/manjarotb/client-path")"
-if [[ -f "$CLIENT" ]] && command -v protontricks-launch >/dev/null; then
-  protontricks-launch --appid 227300 "$CLIENT" >"$HOME/.local/share/manjarotb/trucksbook.log" 2>&1 &
-  sleep 12
+# Fail open: ETS2 starts even when TrucksBook fails.
+STATE="$HOME/.local/share/manjarotb"
+if [[ "$#" -eq 0 ]]; then echo "Wymagany parametr %command%"; exit 1; fi
+TB="$(cat "$STATE/client-path" 2>/dev/null)"
+COMPAT="$(cat "$STATE/compat-path" 2>/dev/null)"
+if [[ -f "$TB" ]] && command -v protontricks-launch >/dev/null; then
+  (STEAM_COMPAT_DATA_PATH="$COMPAT" protontricks-launch --appid 227300 "$TB" >>"$STATE/trucksbook.log" 2>&1) &
 fi
-if [[ "$#" -eq 0 ]]; then echo "Uruchom ten skrypt przez opcje uruchamiania Steam z %command%." >&2; exit 1; fi
 exec "$@"
-EOF
-chmod +x "$DIR/launch.sh"
-log "Gotowe. W Steam > ETS2 > Wlasciwosci > Ogolne > Opcje uruchamiania wklej:"
-echo "\"$DIR/launch.sh\" %command%"
-echo "Upewnij sie, ze w zakladce Zgodnosc jest wybrany Proton."
-echo "Zaloguj sie do TrucksBook, sprawdz sciezke gry i wykonaj testowe zlecenie."
-echo "Log: $DIR/trucksbook.log"
-echo "Nie gwarantujemy zapisu tras; wymaga sprawnego pluginu telemetrii TrucksBook."
+LAUNCH
+chmod +x "$STATE/launch.sh"
+say "Instalacja klienta zakonczona. NIE zmieniam automatycznie opcji Steam."
+say "W Steam -> ETS2 -> Wlasciwosci -> Ogolne -> Opcje uruchamiania wklej:"
+printf '"%s/launch.sh" %%command%%\n' "$STATE"
+say "W TrucksBook ustaw poprawna sciezke do eurotrucks2.exe i sprawdz wtyczke telemetrii."
+say "Nie jest mozliwe potwierdzenie rejestrowania tras bez testowej dostawy."
