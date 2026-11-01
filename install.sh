@@ -17,7 +17,20 @@ for root in "$HOME/.local/share/Steam" "$HOME/.steam/steam" /run/media/"$USER"/*
   if [[ -d "$root/steamapps/compatdata/$APPID/pfx" ]]; then PREFIX="$root/steamapps/compatdata/$APPID"; break; fi
 done
 if [[ -z "$PREFIX" ]]; then
-  fail "Nie znaleziono prefixu ETS2. W Steam wymus Proton (nie wersje natywna), uruchom ETS2 raz, zamknij i ponow skrypt. Jesli gra jest na innym dysku, ustaw STEAM_COMPAT_DATA_PATH recznie."
+  for base in /run/media/"$USER" /mnt "$HOME/.local/share/Steam" "$HOME/.steam"; do
+    [[ -d "$base" ]] || continue
+    while IFS= read -r -d '' found; do
+      PREFIX="${found%/pfx}"
+      break
+    done < <(find "$base" -maxdepth 8 -type d -path "*/steamapps/compatdata/$APPID/pfx" -print0 2>/dev/null)
+    [[ -n "$PREFIX" ]] && break
+  done
+fi
+if [[ -z "$PREFIX" ]]; then
+  echo "Nie znaleziono prefixu automatycznie."
+  read -r -p "Podaj pelna sciezke do katalogu pfx ETS2 (lub Enter, aby przerwac): " CUSTOM_PFX
+  [[ -n "$CUSTOM_PFX" && -d "$CUSTOM_PFX/drive_c" ]] || fail "Nie znaleziono prawidlowego katalogu pfx."
+  PREFIX="${CUSTOM_PFX%/pfx}"
 fi
 log "Prefix ETS2: $PREFIX"
 if [[ -z "${TB_SETUP:-}" ]]; then
